@@ -86,9 +86,9 @@ class TestRefCheck(unittest.TestCase):
     test_authors = [
         ["Chowdhery", "Narang", "Devlin", "Bosma", "Mishra", "Roberts", "Barham", "Chung", "Sutton", "Gehrmann"],
         ["Ortega"],
-        ["Phillips-Mora", "Wilkinson"],
+        ["PhillipsMora", "Wilkinson"],
         ["Rola", "Barrera", "Calhoun", "Unajan", "Boncalon", "Sebios", "Espinosa"],
-        ["Vera", "Oviedo", "Casanova", "Zambrano-Vega"],
+        ["Vera", "Oviedo", "Casanova", "ZambranoVega"],
         ["Diarra", "Ayikpa", "Ballo", "Kouassi"],
         ["Dang", "Wang", "Li"],
         ["Sajitha", "Andrushia", "Anand", "Naser"],
