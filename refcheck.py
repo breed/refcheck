@@ -8,6 +8,7 @@ import unicodedata
 from datetime import datetime
 
 import click
+from pyalex import Works
 from pymupdf import *
 
 EXTRACTION_FLAGS = TEXT_PRESERVE_LIGATURES | TEXT_PRESERVE_WHITESPACE | TEXT_MEDIABOX_CLIP | TEXT_CID_FOR_UNKNOWN_UNICODE
@@ -93,11 +94,13 @@ def fix_accents(text):
 
 # remove all accents and non alpha characters from a string
 # we did all that work above and now we are going to undo it for comparisons
-def just_the_chars(text, space_ok=False):
+def just_the_chars(text, space_ok=False, numbers_ok=False):
     alphatext = ''
     for c in unicodedata.normalize("NFD", text):
-        if unicodedata.category(c)[0] == 'L' or (space_ok and c.isspace()):
+        if unicodedata.category(c)[0] == 'L' or (space_ok and c.isspace()) or (numbers_ok and c.isdigit()):
             alphatext += c
+        if space_ok and c in ['-', '_']:
+            alphatext += ' '
     return alphatext
 
 
@@ -146,8 +149,11 @@ def extract_references(text_lines):
                         first_word = None
                     if last_word and not last_word.isalpha():
                         last_word = None
-                    if first_word and len(first_word) > 1 and first_word.isupper():
+                    if first_word and len(first_word) > 1 and first_word.isupper() and (
+                            not WORDS.check(first_word) or not WORDS.check(last_word)
+                    ):
                         # horrible hack. MGTBench can get hyphenated and the following rule will match it incorrectly
+                        # BUT! we want to preserve the hypen in AI-Coding for example
                         ref = ref[:-1] + line
                     elif not first_word or not last_word or not WORDS.check(first_word+last_word) or last_word[0].isupper():
                         # if they aren't two parts of a word or the last word is capitalized (probably a name) preserve the hyphen
@@ -189,28 +195,27 @@ BibResult = namedtuple('BibResult', ['title', 'year', 'author', 'venue'])
 
 OPENALEX_API = "https://api.openalex.org/works"
 
+
+def alphum_spaces_only(title):
+    # we are going to strip out all the accents and non-alpha characters
+    # and then compare the two strings
+    return just_the_chars(title.lower(), space_ok=True, numbers_ok=True)
+
+
 def search_openalex(title):
-    params = {
-        "filter": f"title.search:{title}",
-        "per-page": 10
-    }
-    try:
-        response = requests.get(OPENALEX_API, params=params, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            results = []
-            for result in data.get('results', []):
-                result_title = result.get('title')
-                if not result_title or not result_title_compare(result_title, title):
-                    continue
-                result_year = result.get('publication_year')
-                result_authors = [author['author']['display_name'] for author in result.get('authorships', [])]
-                result_venue = result.get('host_venue', {}).get('display_name')
-                results.append(BibResult(result_title, result_year, result_authors, result_venue))
-            return results
-    except requests.RequestException:
-        return None
-    return None
+    no_symbol_title = alphum_spaces_only(title)
+    for work in Works().search_filter(title=f'"{no_symbol_title}"').get():
+        result_title = work['title']
+        if not result_title or not result_title_compare(result_title, title):
+            continue
+        result_year = str(work['publication_year'])
+        result_authors = [author['author']['display_name'] for author in work['authorships']]
+        result_primary_location = work['primary_location']
+        result_primary_location_source = result_primary_location['source'] if result_primary_location else None
+        result_primary_location_name = result_primary_location_source['display_name'] if result_primary_location_source else None
+
+        yield BibResult(result_title, result_year, result_authors, result_primary_location_name)
+    return
 
 
 def result_title_compare(result_title, title):
@@ -237,17 +242,14 @@ def search_arxiv(title):
         yield BibResult(result_title, result_year, result_authors, "arXiv")
 
 
-def search_for_title(title, arxiv_search=True):
+def search_for_title(title, arxiv_search=False):
     openalex_results = search_openalex(title)
-    if openalex_results:
-        for result in openalex_results:
-            yield result
+    for result in openalex_results:
+        yield result
 
-    if arxiv_search:
         arxiv_results = search_arxiv(title)
-        if arxiv_results:
-            for result in arxiv_results:
-                yield result
+        for result in arxiv_results:
+            yield result
 
 
 def normalize_quotes(ref: str) -> str:
@@ -260,26 +262,31 @@ def normalize_quotes(ref: str) -> str:
     return ref
 
 
-def extract_possible_title(ref):
+def extract_possible_title(start_of_title):
     # get the reference without the authors
-    ref = ref[find_end_of_authors(ref):].strip()
+    start_of_title = start_of_title[find_end_of_authors(start_of_title):].strip()
     # if there is a (, the authors are using a format that has a date before the title
-    if ref.startswith("("):
-        end_paren = ref.find(")")
+    if start_of_title.startswith("("):
+        end_paren = start_of_title.find(")")
         # there may be a comma or period after the )
-        if ref[end_paren+1] != " ":
+        if start_of_title[end_paren + 1] != " ":
             end_paren += 1
-        ref = ref[end_paren+1:].strip()
+        start_of_title = start_of_title[end_paren + 1:].strip()
 
-    if ref.startswith('"'):
+    if start_of_title.startswith('"'):
         # we have a quoted title
-        end_quote = ref.find('"', 1)
+        end_quote = start_of_title.find('"', 1)
+        while start_of_title[end_quote - 1].isspace():
+            # titles with embedded quotes are the worst!
+            end_inner_quote = start_of_title.find('"', end_quote + 1)
+            end_quote = start_of_title.find('"', end_inner_quote + 1)
+
         # we add 2 to end_quote to skip the " and punctuation after it
-        return ref[1:end_quote].rstrip(",").rstrip(".").strip(), ref[end_quote + 2:].strip()
+        return start_of_title[1:end_quote].rstrip(",").rstrip(".").strip(), start_of_title[end_quote + 2:].strip()
     else:
         # we don't have a quoted title, so we look for the first period
-        period = ref.find(". ")
-        return (ref[:period].strip(), ref[period+1:].strip())
+        period = start_of_title.find(". ")
+        return (start_of_title[:period].strip(), start_of_title[period + 1:].strip())
 
 
 def looks_like_title(ref, period):
@@ -421,8 +428,8 @@ def check_references_validity(references, only_link_check):
         published_somewhere = [x for x in after_title.split(". ") if (
             # filter out parts that are URL related
             x
-            and not x.lower().startswith("access")
-            and not x.lower().startswith("retrieved")
+            and "accessed" not in x.lower()
+            and "retrieved" not in x.lower()
             and x[0].isalpha()
             and not x.lower().startswith("url")
             and not x.lower().startswith("http")
@@ -430,25 +437,28 @@ def check_references_validity(references, only_link_check):
 
         if published_somewhere and not only_link_check:
             found_title = False
-            found_year = False
+            year_problem = None # this means it's not set. '' means year was good
             missing_authors = []
-            for search_result in search_for_title(title):
+            for search_result in search_for_title(title, arxiv_search="arxiv" in ref.lower()):
                 result += f"Search Result: {search_result}"
                 # accents and other characters that might vary
-                item_authors = [just_the_chars(x, space_ok=True) for x in search_result.author]
+                item_authors = [just_the_chars(x) for x in search_result.author]
                 result += ", ".join(search_result.author) + ', '
                 found_title = True
-                if search_result.year == year:
-                    found_year = True
+                if year and year_problem != '' and search_result.year:
+                    if search_result.year == str(year):
+                        year_problem = ''
+                    else:
+                        year_problem = f'found year {search_result.year} but looking for {year}'
                 missing_authors = find_missing_authors(authors, item_authors)
-                if found_year and not missing_authors:
+                if year_problem == '' and not missing_authors:
                     break
 
             if not found_title:
                 sketchy_problem.append("Title not found: " + title)
             else:
-                if not found_year:
-                    sketchy_problem.append("Year not found: " + str(year))
+                if year_problem:
+                    sketchy_problem.append(year_problem)
                 if missing_authors:
                     sketchy_problem.append("Missing authors: " + ", ".join(missing_authors))
 
