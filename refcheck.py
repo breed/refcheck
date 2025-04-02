@@ -344,6 +344,32 @@ def looks_like_title(ref, period):
 
     return True
 
+def looks_like_an_initial(ref, period_position):
+    if ref[period_position - 1].isupper():
+        look_back = period_position - 1;
+        while look_back > 0 and ref[look_back].isupper():
+            look_back -= 1
+        if look_back == 0:
+            # we got to the beginning of the line, it is definitely an initial
+            return True
+
+        # skip any leading spaces
+        while look_back > 0 and ref[look_back].isspace():
+            look_back -= 1
+
+        if look_back == 0 or ref[look_back] in [',', ']']:
+            # we are at the beginning of the reference or the comma separating us from a previous author
+            return True
+
+        # 4 seems arbitrary and small, but we need to make sure there is something to look at...
+        if look_back > 4 and ref[look_back] == ".":
+            return looks_like_an_initial(ref, look_back)
+
+        if look_back > 2 and ref[look_back-2:look_back+1] == "and":
+            return True
+
+        return False
+
 
 def find_end_of_authors(ref):
     title_start_with_quote = ref.find(' "')
@@ -357,13 +383,19 @@ def find_end_of_authors(ref):
         period = ref.find(". ", period + 1)
         if period == -1:
             break
+
+        # check if we are actually a leading initial
+        if looks_like_an_initial(ref, period):
+            continue
+
         # move period past the ". "
         period += 2
-        # a hack to make sure we didn't get stuck on an initial.
+        # a hack to make sure we didn't get stuck on a trailing initial.
         # if the next ". " also precedes a capital letter, we are not at the end of the authors
         next_period = ref.find(". ", period)
         if next_period != -1 and ref[next_period-1].isupper():
             continue
+
         # this is a super gross hack (there are some ugly bibliographies out there!)
         # we aren't done with the authors if there is an "and" as the next word
         rest = ref[period:]
