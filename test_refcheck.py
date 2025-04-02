@@ -1,6 +1,7 @@
 import unittest
 
-from refcheck import extract_possible_title, extract_possible_author_last_names, extract_possible_year, sanitize_ref
+from refcheck import extract_possible_title, extract_possible_author_last_names, extract_possible_year, sanitize_ref, \
+    decide_on_hyphen, alphanum_spaces_only
 
 
 class TestRefCheck(unittest.TestCase):
@@ -176,6 +177,19 @@ class TestRefCheck(unittest.TestCase):
         for ref, expected_year in zip(self.test_references, self.test_years):
             year = extract_possible_year(sanitize_ref(ref))
             self.assertEqual(expected_year, year, ref)
+
+    def test_decide_on_hyphen(self):
+        self.assertEqual(decide_on_hyphen("CNN and Trans-", "former Accelera"), "CNN and Transformer Accelera")
+        self.assertEqual(decide_on_hyphen("5, 6-", "Qubit"), '5, 6-Qubit')
+        self.assertEqual(decide_on_hyphen("A Machine-Learning-", "Based Distributed"), 'A Machine-Learning-Based Distributed')
+        self.assertEqual(decide_on_hyphen("code error-", "correction"), 'code error-correction')
+        self.assertEqual(decide_on_hyphen('"Lithium-', 'Ion Bat'), '"Lithium-Ion Bat')
+        self.assertEqual(decide_on_hyphen("of Ai-", "generated text"), "of Ai-generated text")
+        self.assertEqual(decide_on_hyphen("a gaus-", "sian blur"), "a gaussian blur")
+        self.assertEqual(decide_on_hyphen(": Hyperparamet-", "ers and"), ": Hyperparameters and")
+
+    def test_alphanum_spaces_only(self):
+        self.assertEqual(alphanum_spaces_only("Pytorch: An imperative style, high-performance deep learning library"), "Pytorch An imperative style high performance deep learning library")
 
 if __name__ == '__main__':
     unittest.main()
