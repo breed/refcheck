@@ -13,12 +13,11 @@
 #    they be ignored or replaced by a space. I found you need to keep the . :)
 
 import logging
-from collections import namedtuple
-
-import arxiv
 import unicodedata
+from collections import namedtuple
 from datetime import datetime
 
+import arxiv
 import click
 from pyalex import Works
 from pymupdf import *
@@ -41,6 +40,7 @@ URL_PATTERN = re.compile(r'https?:(//\S*)? ?$')
 
 WORDS = enchant.Dict("en_US")
 
+
 def _strip_prefix(s: str, prefix: str) -> str:
     return s[len(prefix):] if s.startswith(prefix) else s
 
@@ -60,16 +60,18 @@ def make_combining_form(diacritic):
     except KeyError:
         return None
 
+
 # This class will be fed one character at a time and will return true if the current character is
 # part of a URL
 class URLTracker:
     HTTP_PREFIX = "http://"
     HTTPS_PREFIX = "https://"
+
     def __init__(self):
         self.match_index = 0
 
     def in_url(self):
-        return self.match_index >= 7 # we've matched up to http://
+        return self.match_index >= 7  # we've matched up to http://
 
     def add_char(self, c):
         if c.isspace():
@@ -109,8 +111,8 @@ def fix_accents(text):
 def just_the_chars(text, space_ok=False, numbers_ok=False):
     alphatext = ''
     for c in unicodedata.normalize("NFD", text):
-        if (unicodedata.category(c)[0] == 'L' or (space_ok and c.isspace()) or
-                (numbers_ok and (c.isdigit() or c in ['.']))):
+        if (unicodedata.category(c)[0] == 'L' or (space_ok and c.isspace()) or (
+                numbers_ok and (c.isdigit() or c in ['.']))):
             alphatext += c
         if space_ok and c in ['-', '_']:
             alphatext += ' '
@@ -180,7 +182,7 @@ def decide_on_hyphen(ref, line):
         # these aren't words so preserve the hyphen or
         # if the last word is capitalized (probably a name) preserve the hyphen
         ref = ref + line
-    elif check_dictionary(first_word+last_word):
+    elif check_dictionary(first_word + last_word):
         # if the first and last words are a valid word, remove hyphen
         ref = ref[:-1] + line
     elif check_dictionary(first_word) and check_dictionary(last_word):
@@ -216,6 +218,7 @@ def check_url_validity(url):
     except requests.RequestException:
         return False
 
+
 BibResult = namedtuple('BibResult', ['title', 'year', 'author', 'venue'])
 
 OPENALEX_API = "https://api.openalex.org/works"
@@ -238,7 +241,8 @@ def search_openalex(title):
             result_authors = [author['author']['display_name'] for author in work['authorships']]
             result_primary_location = work['primary_location']
             result_primary_location_source = result_primary_location['source'] if result_primary_location else None
-            result_primary_location_name = result_primary_location_source['display_name'] if result_primary_location_source else None
+            result_primary_location_name = result_primary_location_source[
+                'display_name'] if result_primary_location_source else None
 
             yield BibResult(result_title, result_year, result_authors, result_primary_location_name)
     except Exception as ex:
@@ -254,11 +258,7 @@ def result_title_compare(result_title, title):
 def search_arxiv(title):
     try:
         client = arxiv.Client()
-        search = arxiv.Search(
-            query=f"ti:{title}",
-            max_results=10,
-            sort_by=arxiv.SortCriterion.Relevance
-        )
+        search = arxiv.Search(query=f"ti:{title}", max_results=10, sort_by=arxiv.SortCriterion.Relevance)
 
         results = []
         for result in client.results(search):
@@ -270,6 +270,7 @@ def search_arxiv(title):
             yield BibResult(result_title, result_year, result_authors, "arXiv")
     except Exception as ex:
         logging.error(f"Error fetching arXiv data for {title}: {ex}")
+
 
 def search_for_title(title, arxiv_search=False):
     openalex_results = search_openalex(title)
@@ -344,6 +345,7 @@ def looks_like_title(ref, period):
 
     return True
 
+
 def looks_like_an_initial(ref, period_position):
     if ref[period_position - 1].isupper():
         look_back = period_position - 1;
@@ -365,7 +367,7 @@ def looks_like_an_initial(ref, period_position):
         if look_back > 4 and ref[look_back] == ".":
             return looks_like_an_initial(ref, look_back)
 
-        if look_back > 2 and ref[look_back-2:look_back+1] == "and":
+        if look_back > 2 and ref[look_back - 2:look_back + 1] == "and":
             return True
 
         return False
@@ -393,7 +395,7 @@ def find_end_of_authors(ref):
         # a hack to make sure we didn't get stuck on a trailing initial.
         # if the next ". " also precedes a capital letter, we are not at the end of the authors
         next_period = ref.find(". ", period)
-        if next_period != -1 and ref[next_period-1].isupper():
+        if next_period != -1 and ref[next_period - 1].isupper():
             continue
 
         # this is a super gross hack (there are some ugly bibliographies out there!)
@@ -411,6 +413,7 @@ def find_end_of_authors(ref):
         if not comma:
             return 0
     return comma
+
 
 def extract_possible_year(after_title):
     # Heuristic: look for a 4-digit year
@@ -432,7 +435,7 @@ def extract_possible_author_last_names(ref):
     # We are assuming the biggest part of the name is the last name
     raw_author_split = re.split(", | and ", author_list)
     author_last_names = []
-    for author in  raw_author_split:
+    for author in raw_author_split:
         author = author.strip()
         if not author:
             continue
@@ -440,7 +443,8 @@ def extract_possible_author_last_names(ref):
         if re.search(r'\d', author):
             break
         # Remove any initials or periods from the name
-        name_parts = [n for n in author.split(' ') if len(n) > 1 and '.' not in n and n[0].isupper() and not n.isupper()]
+        name_parts = [n for n in author.split(' ') if
+                      len(n) > 1 and '.' not in n and n[0].isupper() and not n.isupper()]
         if name_parts:
             last_name = name_parts[-1]
             if last_name in ["et", "al", "al.", "et.", "others"]:
@@ -486,19 +490,13 @@ def check_references_validity(references, only_link_check):
         year = extract_possible_year(after_title)
         authors = extract_possible_author_last_names(ref)
 
-        published_somewhere = [x for x in after_title.split(". ") if (
-            # filter out parts that are URL related
-            x
-            and "accessed" not in x.lower()
-            and "retrieved" not in x.lower()
-            and x[0].isalpha()
-            and not x.lower().startswith("url")
-            and not x.lower().startswith("http")
-        )]
+        published_somewhere = [x for x in after_title.split(". ") if (# filter out parts that are URL related
+                x and "accessed" not in x.lower() and "retrieved" not in x.lower() and x[
+            0].isalpha() and not x.lower().startswith("url") and not x.lower().startswith("http"))]
 
         if published_somewhere and not only_link_check:
             found_title = False
-            year_problem = None # this means it's not set. '' means year was good
+            year_problem = None  # this means it's not set. '' means year was good
             missing_authors = []
             for search_result in search_for_title(title, arxiv_search="arxiv" in ref.lower()):
                 result += f"Search Result: {search_result}"
@@ -547,7 +545,8 @@ def main(pdf_path, show_all_results, dump_info, only_link_check):
             for file in [os.path.join(root, f) for f in files if f.endswith('.pdf')]:
                 pdfs.append(file)
         # sort them so that numerical order is preserved (assuming the numbers are less than 1,000,000
-        for file in sorted(pdfs, key=lambda x: os.path.sep.join([p.zfill(6) if p.isdigit() else p for p in x.split(os.path.sep)])):
+        for file in sorted(pdfs, key=lambda x: os.path.sep.join(
+                [p.zfill(6) if p.isdigit() else p for p in x.split(os.path.sep)])):
             check_references(file, show_all_results, dump_info, only_link_check)
             print("-----------------------------\n")
     else:
@@ -568,6 +567,7 @@ def sanitize_ref(ref):
     while "  " in ref:
         ref = ref.replace("  ", " ")
     return ref
+
 
 def check_references(pdf_path, show_all_results, dump_info, only_link_check):
     print(f"Extracting references from: {pdf_path}")
@@ -590,6 +590,7 @@ def check_references(pdf_path, show_all_results, dump_info, only_link_check):
                 print("Sketchy Reference: " + ref)
                 print("Sketchy problem: " + "; ".join(sketchy_problem))
             print()
+
 
 if __name__ == "__main__":
     main()
