@@ -1,7 +1,7 @@
 import unittest
 
 from refcheck import extract_possible_title, extract_possible_author_last_names, extract_possible_year, sanitize_ref, \
-    decide_on_hyphen, alphanum_spaces_only
+    decide_on_hyphen, alphanum_spaces_only, search_openalex, search_arxiv
 
 
 class TestRefCheck(unittest.TestCase):
@@ -42,90 +42,26 @@ class TestRefCheck(unittest.TestCase):
         '[10] Y. Kossale, M. Airaj, and A. Darouichi, “Mode Collapse in Generative Adversarial Networks: An Overview,” in 2022 8th  International Conference on Optimization and Applications  (ICOA), Oct. 2022, pp. 1–6. ',
         '[11] Z. Wang, E. P. Simoncelli, and A. C. Bovik, “Multiscale structural similarity for image quality assessment,” in The  Thrity-Seventh Asilomar Conference on Signals, Systems &  Computers, 2003, Nov. 2003, pp. 1398-1402 Vol.2.  ',
         '[12] J. Cai, B. Huang, and T. Fung, “Progressive spatiotemporal image fusion with deep neural networks,” International Journal  of Applied Earth Observation and Geoinformation, vol. 108, p.  102745, Apr. 2022. ',
-        '[13] S. B. Damsgaard, N. J. Hernández Marcano, M.  Nørremark, R. H. Jacobsen, I. Rodriguez, and P. Mogensen, “Wireless Communications for Internet of Farming: An Early 5G Measurement Study,” IEEE Access, vol. 10, pp. 105263– 105277, 2022.    Address for correspondence:  Nicolas Escobedo   3801 W Temple Ave, Pomona, CA   Nescobedo@cpp.edu ',
-    ]
-    test_years = [
-        2022,
-        2024,
-        2007,
-        2024,
-        2024,
-        2023,
-        2024,
-        2024,
-        2024,
-        2022,
-        2022,
-        2022,
-        2022,
-        2010,
-        2022,
-        2023,
-        2022,
-        2022,
-        2021,
-        None,
-        2022,
-        2023,
-        2022,
-        2022,
-        2023,
-        None,
-        2024,
-        1981,
-        2019,
-        2018,
-        2023,
-        2017,
-        2021,
-        2022,
-        2003,
-        2022,
-        2022,
-        ]
+        '[13] S. B. Damsgaard, N. J. Hernández Marcano, M.  Nørremark, R. H. Jacobsen, I. Rodriguez, and P. Mogensen, “Wireless Communications for Internet of Farming: An Early 5G Measurement Study,” IEEE Access, vol. 10, pp. 105263– 105277, 2022.    Address for correspondence:  Nicolas Escobedo   3801 W Temple Ave, Pomona, CA   Nescobedo@cpp.edu ', ]
+    test_years = [2022, 2024, 2007, 2024, 2024, 2023, 2024, 2024, 2024, 2022, 2022, 2022, 2022, 2010, 2022, 2023, 2022,
+        2022, 2021, None, 2022, 2023, 2022, 2022, 2023, None, 2024, 1981, 2019, 2018, 2023, 2017, 2021, 2022, 2003,
+        2022, 2022, ]
 
     test_authors = [
         ["Chowdhery", "Narang", "Devlin", "Bosma", "Mishra", "Roberts", "Barham", "Chung", "Sutton", "Gehrmann"],
-        ["Ortega"],
-        ["PhillipsMora", "Wilkinson"],
+        ["Ortega"], ["PhillipsMora", "Wilkinson"],
         ["Rola", "Barrera", "Calhoun", "Unajan", "Boncalon", "Sebios", "Espinosa"],
-        ["Vera", "Oviedo", "Casanova", "ZambranoVega"],
-        ["Diarra", "Ayikpa", "Ballo", "Kouassi"],
-        ["Dang", "Wang", "Li"],
-        ["Sajitha", "Andrushia", "Anand", "Naser"],
-        ["Miracle"],
-        ["Mystakidis", "Stylianos"],
-        ["Laeeq"],
-        ["Kerdvibulvech"],
-        ["Chohan"],
-        ["Hazan"],
-        ["Marr"],
-        ["Talin"],
-        ["Lin", "Hong", "Wan", "Gan", "Chen", "Chao"],
-        ["Niu", "Feng"],
-        ["Thomason"],
-        [],
-        [],
-        ["Masih"],
-        ["Belk", "Humayun", "Brouard"],
-        ["Wang", "Yuntao", "Su", "Zhang", "Xing", "Liu", "Luan", "Shen"],
-        ["Wang", "Sun", "Chehri", "Song"],
-        ["Zaluzec"],
-        ["Yokoya"],
-        ["Keys"],
-        ["Li", "Xie", "Du", "Li"],
-        ["Wongso", "Luwinda", "Williem"],
-        ["Hundal", "Laux", "Buckmaster", "Sutton", "Langemeier"],
-        ["Lai", "Huang", "Ahuja", "Yang"],
-        ["Saxena", "Cao"],
-        ["Kossale", "Airaj", "Darouichi"],
-        ["Wang", "Simoncelli", "Bovik"],
-        ["Cai", "Huang", "Fung"],
-        ["Damsgaard", "Marcano", "Jacobsen", "Rodriguez" , 'Mogensen'],
-    ]
-    test_titles = [
-        "PaLM: Scaling language modeling with pathways",
-        "The Colombian Cacao Sector - 2024 Update",
+        ["Vera", "Oviedo", "Casanova", "ZambranoVega"], ["Diarra", "Ayikpa", "Ballo", "Kouassi"],
+        ["Dang", "Wang", "Li"], ["Sajitha", "Andrushia", "Anand", "Naser"], ["Miracle"], ["Mystakidis", "Stylianos"],
+        ["Laeeq"], ["Kerdvibulvech"], ["Chohan"], ["Hazan"], ["Marr"], ["Talin"],
+        ["Lin", "Hong", "Wan", "Gan", "Chen", "Chao"], ["Niu", "Feng"], ["Thomason"], [], [], ["Masih"],
+        ["Belk", "Humayun", "Brouard"], ["Wang", "Yuntao", "Su", "Zhang", "Xing", "Liu", "Luan", "Shen"],
+        ["Wang", "Sun", "Chehri", "Song"], ["Zaluzec"], ["Yokoya"], ["Keys"], ["Li", "Xie", "Du", "Li"],
+        ["Wongso", "Luwinda", "Williem"], ["Hundal", "Laux", "Buckmaster", "Sutton", "Langemeier"],
+        ["Lai", "Huang", "Ahuja", "Yang"], ["Saxena", "Cao"], ["Kossale", "Airaj", "Darouichi"],
+        ["Wang", "Simoncelli", "Bovik"], ["Cai", "Huang", "Fung"],
+        ["Damsgaard", "Marcano", "Jacobsen", "Rodriguez", 'Mogensen'], ]
+    test_titles = ["PaLM: Scaling language modeling with pathways", "The Colombian Cacao Sector - 2024 Update",
         "Frosty Pod of Cacao: A Disease with a Limited Geographic Range but Unlimited Potential for Damage",
         "Convolutional Neural Network Model for Cacao Phytophthora Palmivora Disease Recognition",
         "Deep Learning-Based Computational Model for Disease Identification in Cocoa Pods (Theobroma cacao L.)",
@@ -133,9 +69,9 @@ class TestRefCheck(unittest.TestCase):
         "Computer Vision for Plant Disease Recognition: A Comprehensive Review",
         "A review on machine learning and deep learning image-based plant disease classification for industrial farming systems",
         "Enhancing Cocoa Crop Resilience in Ghana: The Application of Convolutional Neural Networks for Early Detection of Disease and Pest Infestations",
-        "Metaverse", "Metaverse: why, how and what",
-        "Exploring the impacts of COVID-19 on digital and metaverse games", "Metaverse or Metacurse?",
-        "Musing the metaverse", "A Short History Of The Metaverse", "History and Evolution of the Metaverse Concept",
+        "Metaverse", "Metaverse: why, how and what", "Exploring the impacts of COVID-19 on digital and metaverse games",
+        "Metaverse or Metacurse?", "Musing the metaverse", "A Short History Of The Metaverse",
+        "History and Evolution of the Metaverse Concept",
         "Metaverse in education: Vision, opportunities, and challenges",
         "Immersive entertainment environments-from theme parks to metaverse",
         "Metahealth-how will the metaverse change health care?", "What Are Metaverse Events?- Ideas And Best Practice",
@@ -155,8 +91,7 @@ class TestRefCheck(unittest.TestCase):
         "Mode Collapse in Generative Adversarial Networks: An Overview",
         "Multiscale structural similarity for image quality assessment",
         "Progressive spatiotemporal image fusion with deep neural networks",
-        "Wireless Communications for Internet of Farming: An Early 5G Measurement Study",
-    ]
+        "Wireless Communications for Internet of Farming: An Early 5G Measurement Study", ]
 
     def test_test_data(self):
         self.assertEqual(len(self.test_references), len(self.test_titles))
@@ -181,7 +116,8 @@ class TestRefCheck(unittest.TestCase):
     def test_decide_on_hyphen(self):
         self.assertEqual(decide_on_hyphen("CNN and Trans-", "former Accelera"), "CNN and Transformer Accelera")
         self.assertEqual(decide_on_hyphen("5, 6-", "Qubit"), '5, 6-Qubit')
-        self.assertEqual(decide_on_hyphen("A Machine-Learning-", "Based Distributed"), 'A Machine-Learning-Based Distributed')
+        self.assertEqual(decide_on_hyphen("A Machine-Learning-", "Based Distributed"),
+                         'A Machine-Learning-Based Distributed')
         self.assertEqual(decide_on_hyphen("code error-", "correction"), 'code error-correction')
         self.assertEqual(decide_on_hyphen('"Lithium-', 'Ion Bat'), '"Lithium-Ion Bat')
         self.assertEqual(decide_on_hyphen("of Ai-", "generated text"), "of Ai-generated text")
@@ -189,7 +125,42 @@ class TestRefCheck(unittest.TestCase):
         self.assertEqual(decide_on_hyphen(": Hyperparamet-", "ers and"), ": Hyperparameters and")
 
     def test_alphanum_spaces_only(self):
-        self.assertEqual(alphanum_spaces_only("Pytorch: An imperative style, high-performance deep learning library"), "Pytorch An imperative style high performance deep learning library")
+        self.assertEqual(alphanum_spaces_only("Pytorch: An imperative style, high-performance deep learning library"),
+                         "Pytorch An imperative style high performance deep learning library")
+
+    def test_alex_search(self):
+        zookeeper_title = "ZooKeeper: wait-free coordination for internet-scale systems"
+        zookeeper_result = search_openalex(zookeeper_title)
+        for result in zookeeper_result:
+            self.assertEqual(zookeeper_title, result.title)
+            self.assertFalse(result.is_retracted)
+            self.assertEqual('2010', result.year)
+            break
+
+        retracted_title = "Lysyl oxidase is essential for hypoxia-induced metastasis"
+        retracted_result = search_openalex(retracted_title)
+        for result in retracted_result:
+            self.assertEqual(retracted_title, result.title)
+            self.assertTrue(result.is_retracted)
+            self.assertEqual('2006', result.year)
+            break
+
+    def test_arxiv_search(self):
+        codeval_title = " CodEval: Improving Student Success In Programming Assignments"
+        codeval_result = search_arxiv(codeval_title)
+        for result in codeval_result:
+            self.assertEqual(codeval_title, result.title)
+            self.assertFalse(result.is_retracted)
+            self.assertEqual('2023', result.year)
+            break
+
+        retracted_title = "A conjecture of Nadji, Ahmia and Ramírez on congruences for biregular overpartitions"
+        retracted_result = search_arxiv(retracted_title)
+        for result in retracted_result:
+            self.assertEqual(retracted_title, result.title)
+            self.assertTrue(result.is_retracted)
+            self.assertEqual('2025', result.year)
+
 
 if __name__ == '__main__':
     unittest.main()
