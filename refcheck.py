@@ -21,9 +21,9 @@ from datetime import datetime
 import arxiv
 import click
 from pyalex import Works
-from pymupdf import TEXT_PRESERVE_LIGATURES, TEXT_PRESERVE_WHITESPACE, TEXT_MEDIABOX_CLIP, TEXT_CID_FOR_UNKNOWN_UNICODE
+from pymupdf import TEXT_MEDIABOX_CLIP, TEXT_CID_FOR_UNKNOWN_UNICODE
 
-EXTRACTION_FLAGS = TEXT_PRESERVE_LIGATURES | TEXT_PRESERVE_WHITESPACE | TEXT_MEDIABOX_CLIP | TEXT_CID_FOR_UNKNOWN_UNICODE
+EXTRACTION_FLAGS = TEXT_MEDIABOX_CLIP | TEXT_CID_FOR_UNKNOWN_UNICODE
 
 CURRENT_YEAR = datetime.now().year
 from os.path import isdir
@@ -115,24 +115,64 @@ def just_the_chars(text, space_ok=False, numbers_ok=False):
         if (unicodedata.category(c)[0] == 'L' or (space_ok and c.isspace()) or (
                 numbers_ok and (c.isdigit() or c in ['.']))):
             alphatext += c
-        if space_ok and c in ['-', '_']:
+        elif space_ok:
             alphatext += ' '
     return alphatext
 
 
+# bounding box is a tuple of (top_left_x, top_left_y, bottom_right_x, bottom_right_y)
+# we are going to assume that the text is in a single line if the y coordinates overlap
+def on_same_line(prev_bb, bb):
+    if not prev_bb:
+        return True
+    prev_y_top = prev_bb[1]
+    prev_y_bottom = prev_bb[3]
+    bb_y_top = bb[1]
+    bb_y_bottom = bb[3]
+    return prev_y_top < bb_y_bottom and prev_y_bottom > bb_y_top
+
+
+# we are going to assume that the text is touching if the x coordinates overlap
+def bb_touching(prev_bb, bb):
+    if not prev_bb:
+        return True
+    prev_x_left = prev_bb[0]
+    prev_x_right = prev_bb[2]
+    bb_x_left = bb[0]
+    bb_x_right = bb[2]
+    # provide 0.5 margin for error
+    return prev_x_right + 0.5 > bb_x_left
+
+
 def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
+    text = ''
 
     for page in doc:
-        page_text = page.get_text(flags=EXTRACTION_FLAGS)
-        for line in page_text.split("\n"):
-            yield line
+        # we need more sophisticated processing than get_text to preserve lines
+        text_page = page.get_textpage(flags=EXTRACTION_FLAGS)
+        prev_bb = None
+        for text_block in text_page.extractDICT()['blocks']:
+            for line in text_block['lines']:
+                for span in line['spans']:
+                    bb = span['bbox']
+                    if on_same_line(prev_bb, bb):
+                        delimiter = '' if bb_touching(prev_bb, bb) else ' '
+                        text += delimiter + span['text']
+                    else:
+                        yield text
+                        text = span['text']
+                    prev_bb = bb
+
+    # if there is anything else left, return it
+    if text:
+        yield text
 
 
 def extract_references(text_lines):
     # Roughly extract references section
     for line in text_lines:
-        references_section = re.search(r'references|bibliography', line, flags=re.IGNORECASE)
+        references_section = re.search(r'(references|bibliography)\s*$', line.strip(), flags=re.IGNORECASE)
         if references_section:
             break
     ref = None
@@ -207,18 +247,16 @@ def find_urls_or_dois(ref):
     return [url.rstrip('.').rstrip(',') for url in urls + ["https://doi.org/" + doi for doi in dois]]
 
 
-def check_url_validity(url, debug):
+def check_url_validity(url):
     try:
         if url.startswith(DOI_ORG_PREFIX):
             url = DOI_ORG_API + url[len(DOI_ORG_PREFIX):]
         response = requests.get(url, allow_redirects=True, timeout=10)
-        if debug:
-            logging.debug(f"Checking URL: {url} returned status code: {response.status_code}")
+        logging.debug(f"Checking URL: {url} returned status code: {response.status_code}")
         # we are going to take 403 as meaning that it could be there...
         return response.status_code < 400 or response.status_code == 403
     except requests.RequestException as ex:
-        if debug:
-            logging.debug(f"Checking URL: {url} caused exception: {ex}")
+        logging.debug(f"Checking URL: {url} caused exception: {ex}")
         return False
 
 
@@ -233,11 +271,10 @@ def alphanum_spaces_only(title):
     return just_the_chars(title, space_ok=True, numbers_ok=True)
 
 
-def search_openalex(title, debug=False):
+def search_openalex(title):
     no_symbol_title = alphanum_spaces_only(title)
     try:
-        if debug:
-            logging.debug(f"Searching OpenAlex for: {no_symbol_title}")
+        logging.debug(f"Searching OpenAlex for: {no_symbol_title}")
         retracted = []
         not_retracted = []
         for work in Works().search_filter(title=f'"{no_symbol_title}"').get():
@@ -277,18 +314,16 @@ def result_title_compare(result_title, title):
     return just_the_chars(result_title.lower()) == just_the_chars(title.lower())
 
 
-def search_arxiv(title, debug=False):
+def search_arxiv(title):
     try:
         client = arxiv.Client()
-        if debug:
-            logging.debug(f"Searching arXiv for: {title}")
+        logging.debug(f"Searching arXiv for: {title}")
         search = arxiv.Search(query=f"ti:{title}", max_results=10, sort_by=arxiv.SortCriterion.Relevance)
 
         for result in client.results(search):
             result_title = result.title
             is_retracted = "withdrawn" in result.comment.lower() if result.comment else False
-            if debug:
-                logging.debug(f"arXiv title: {result_title}")
+            logging.debug(f"arXiv title: {result_title}")
             if not result_title or not result_title_compare(result_title, title):
                 continue
             result_year = str(result.published.year)
@@ -298,13 +333,13 @@ def search_arxiv(title, debug=False):
         logging.error(f"Error fetching arXiv data for {title}: {ex}")
 
 
-def search_for_title(title, arxiv_search=False, debug=False):
-    openalex_results = search_openalex(title, debug)
+def search_for_title(title, arxiv_search=False):
+    openalex_results = search_openalex(title)
     for result in openalex_results:
         yield result
 
     if arxiv_search:
-        arxiv_results = search_arxiv(title, debug)
+        arxiv_results = search_arxiv(title)
         for result in arxiv_results:
             yield result
 
@@ -499,14 +534,14 @@ def find_missing_authors(authors, item_authors):
     return missing
 
 
-def check_references_validity(references, only_link_check, debug, strict_title):
+def check_references_validity(references, only_link_check, strict_title):
     sketchy = []
     for ref in references:
         links = find_urls_or_dois(ref)
         sketchy_problem = []
 
         if links:
-            bad_links = [url for url in links if not check_url_validity(url, debug)]
+            bad_links = [url for url in links if not check_url_validity(url)]
             if bad_links:
                 sketchy_problem.append("❌ Invalid DOI or URL: " + ", ".join(bad_links))
             else:
@@ -531,7 +566,7 @@ def check_references_validity(references, only_link_check, debug, strict_title):
             found_title = False
             year_problem = None  # this means it's not set. '' means year was good
             missing_authors = []
-            for search_result in search_for_title(title, arxiv_search="arxiv" in ref.lower(), debug=debug):
+            for search_result in search_for_title(title, arxiv_search="arxiv" in ref.lower()):
                 # accents and other characters that might vary
                 item_authors = [just_the_chars(x) for x in search_result.author]
                 found_title = True
@@ -582,6 +617,8 @@ def main(pdf_path, dump_info, only_link_check, debug, strict_title, problems_onl
 
     PDF_PATH can be a directory or a file. if it is a directory, all the PDFs in the directory will be checked.
     """
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
     if isdir(pdf_path):
         pdfs = []
         for root, dirs, files in os.walk(pdf_path):
@@ -590,12 +627,10 @@ def main(pdf_path, dump_info, only_link_check, debug, strict_title, problems_onl
         # sort them so that numerical order is preserved (assuming the numbers are less than 1,000,000
         for file in sorted(pdfs, key=lambda x: os.path.sep.join(
                 [p.zfill(6) if p.isdigit() else p for p in x.split(os.path.sep)])):
-            check_references(file, dump_info, only_link_check, debug=debug, strict_title=strict_title,
-                             problems_only=problems_only)
+            check_references(file, dump_info, only_link_check, strict_title=strict_title, problems_only=problems_only)
             print("-----------------------------\n")
     else:
-        check_references(pdf_path, dump_info, only_link_check, debug=debug, strict_title=strict_title,
-                         problems_only=problems_only)
+        check_references(pdf_path, dump_info, only_link_check, strict_title=strict_title, problems_only=problems_only)
 
 
 def extract_info(references):
@@ -609,12 +644,13 @@ def extract_info(references):
 
 def sanitize_ref(ref):
     ref = normalize_quotes(ref)
+    # we get double spaces when line justification happens sometimes. remove them
     while "  " in ref:
         ref = ref.replace("  ", " ")
     return ref
 
 
-def check_references(pdf_path, dump_info, only_link_check, debug, strict_title, problems_only):
+def check_references(pdf_path, dump_info, only_link_check, strict_title, problems_only):
     print(f"Extracting references from: {pdf_path}")
     text_lines = extract_text_from_pdf(pdf_path)
     references = [sanitize_ref(x) for x in extract_references(text_lines)]
@@ -622,7 +658,7 @@ def check_references(pdf_path, dump_info, only_link_check, debug, strict_title, 
     if dump_info:
         extract_info(references)
     else:
-        sketchy = check_references_validity(references, only_link_check, debug=debug, strict_title=strict_title)
+        sketchy = check_references_validity(references, only_link_check, strict_title=strict_title)
 
         if sketchy:
             for (ref, sketchy_problems) in sketchy:
