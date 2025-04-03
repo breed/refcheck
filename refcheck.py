@@ -555,7 +555,7 @@ def check_references_validity(references, only_link_check, debug, strict_title):
                 sketchy_problem.append(f"✅ Found title: {title}")
                 if not year:
                     sketchy_problem.append("☣️ Publication year missing from reference")
-                if year_problem:
+                elif year_problem:
                     sketchy_problem.append(year_problem)
                 else:
                     sketchy_problem.append(f"✅ Found year: {year}")
